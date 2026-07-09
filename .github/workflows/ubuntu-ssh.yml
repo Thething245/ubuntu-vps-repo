@@ -1,0 +1,236 @@
+name: Ubuntu SSH VPS (Singapore)
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [create-vps]
+
+env:
+  VPS_NAME: ubuntu-vps-repo
+  GITHUB_TOKEN_VPS: ${{ secrets.GH_TOKEN }}
+  NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+    - name: ⬇️ Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+
+    - name: 📦 Restore latest backup (if any)
+      if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch' }}
+      run: |
+        # Find the most recent backup tarball in .backup/
+        LATEST=$(ls -t .backup/*.tar.gz 2>/dev/null | head -n1 || echo "")
+        if [ -n "$LATEST" ]; then
+          echo "🔄 Restoring from backup: $LATEST"
+          # Extract into the repo root (overwrites existing files)
+          tar -xzf "$LATEST" --strip-components=1 --skip-old-files
+          echo "✅ Restore complete"
+        else
+          echo "ℹ️ No backup found – starting fresh"
+        fi
+
+    - name: 🌏 Setup VPS in Singapore Region
+      run: |
+        echo "🌏 Setting up Ubuntu VPS in Singapore region"
+        echo "📍 Region: Asia-Pacific (Singapore)"
+        echo "🖥️  OS: Ubuntu 22.04 LTS"
+        
+    - name: 🔧 Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget curl unzip zip
+        
+    - name: 🔐 Setup SSH Server
+      run: |
+        echo "🔐 Configuring SSH server..."
+        sudo apt-get install -y openssh-server
+        sudo systemctl start ssh
+        sudo systemctl enable ssh
+        
+        # Create user
+        echo "👤 Creating user 'vpsuser'..."
+        sudo useradd -m -s /bin/bash vpsuser
+        echo "vpsuser:vps123456" | sudo chpasswd
+        sudo usermod -aG sudo vpsuser
+        
+        # Configure SSH
+        sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo systemctl restart ssh
+        
+        echo "✅ SSH server configured"
+        echo "👤 Username: vpsuser"
+        echo "🔑 Password: vps123456"
+        
+    - name: 🌐 Try Ngrok, fallback to sshx.io
+      id: tunnel
+      run: |
+        echo "📥 Installing Ngrok..."
+        wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        tar xvzf ngrok-v3-stable-linux-amd64.tgz
+        chmod +x ngrok
+
+        # Authenticate Ngrok (optional)
+        if [ -n "${{ secrets.NGROK_TOKEN }}" ]; then
+          echo "🔐 Authenticating Ngrok with token..."
+          ./ngrok config add-authtoken ${{ secrets.NGROK_TOKEN }}
+        else
+          echo "⚠️ No Ngrok token provided, using free tier"
+        fi
+
+        # Start Ngrok tunnel for SSH (port 22)
+        echo "🚀 Starting Ngrok tunnel for SSH (port 22)..."
+        ./ngrok tcp 22 --log stdout > ngrok.log &
+        sleep 10
+
+        NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o '"public_url":"[^"]*"' | grep -o 'tcp://[^"]*' | head -n1 || true)
+
+        if [ -n "$NGROK_URL" ]; then
+          echo "✅ Ngrok tunnel established"
+          echo "TUNNEL_TYPE=ngrok" >> $GITHUB_OUTPUT
+          echo "TUNNEL_URL=$NGROK_URL" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # ---- Fallback to sshx.io ----
+        echo "⚠️ Ngrok failed, starting sshx.io web terminal..."
+        curl -sSf https://sshx.io/get | sh -s run > sshx.log 2>&1 &
+        sleep 5
+        SSHX_URL=$(grep -oE 'https://sshx.io/s/[a-zA-Z0-9#]+' sshx.log | head -n1 || echo "https://sshx.io")
+        echo "✅ sshx.io web terminal started"
+        echo "TUNNEL_TYPE=sshx" >> $GITHUB_OUTPUT
+        echo "TUNNEL_URL=$SSHX_URL" >> $GITHUB_OUTPUT
+
+    - name: 🌐 Extract host and port from tunnel
+      id: extract
+      run: |
+        TUNNEL_URL="${{ steps.tunnel.outputs.TUNNEL_URL }}"
+        ADDR=${TUNNEL_URL#*://}
+        TUNNEL_HOST=${ADDR%:*}
+        TUNNEL_PORT=${ADDR#*:}
+        echo "TUNNEL_HOST=$TUNNEL_HOST" >> $GITHUB_OUTPUT
+        echo "TUNNEL_PORT=$TUNNEL_PORT" >> $GITHUB_OUTPUT
+
+    - name: 📝 Save connection info
+      run: |
+        echo "========================================" > ssh-info.txt
+        echo "🖥️  Ubuntu SSH VPS - Singapore" >> ssh-info.txt
+        echo "========================================" >> ssh-info.txt
+        echo "" >> ssh-info.txt
+        echo "📍 Region: Singapore (Asia-Pacific)" >> ssh-info.txt
+        echo "🌐 Host: ${{ steps.extract.outputs.TUNNEL_HOST }}" >> ssh-info.txt
+        echo "🔌 Port: ${{ steps.extract.outputs.TUNNEL_PORT }}" >> ssh-info.txt
+        echo "👤 Username: vpsuser" >> ssh-info.txt
+        echo "🔑 Password: vps123456" >> ssh-info.txt
+        echo "" >> ssh-info.txt
+        echo "📝 SSH Command:" >> ssh-info.txt
+        echo "   ssh vpsuser@${{ steps.extract.outputs.TUNNEL_HOST }} -p ${{ steps.extract.outputs.TUNNEL_PORT }}" >> ssh-info.txt
+        echo "" >> ssh-info.txt
+        echo "⏰ Session Duration: ~6 hours" >> ssh-info.txt
+        echo "🔄 Auto-restart: Enabled" >> ssh-info.txt
+        echo "📦 Backup: Every hour" >> ssh-info.txt
+        echo "========================================" >> ssh-info.txt
+
+        cat ssh-info.txt
+        
+    - name: 💾 Setup Backup Directory
+      run: |
+        mkdir -p .backup
+        echo "📦 Backup directory created"
+        
+    - name: 📡 Commit SSH Info
+      run: |
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+        git add ssh-info.txt .backup/
+        git commit -m "📡 Updated SSH info - $(date)" --allow-empty
+        git push origin main --force-with-lease
+        
+    - name: ⏳ Keep VPS Alive with Hourly Backups
+      run: |
+        echo "🟢 VPS is now running..."
+        echo "⏰ Will run for ~6 hours then auto-restart"
+        echo "📦 Backups will be created every hour"
+        
+        # Keep alive for 6 hours (21600 seconds)
+        TOTAL_SECONDS=21600
+        INTERVAL=300  # Check every 5 minutes
+        BACKUP_INTERVAL=3600  # Backup every hour
+        ELAPSED=0
+        LAST_BACKUP=0
+        
+        while [ $ELAPSED -lt $TOTAL_SECONDS ]; do
+          REMAINING=$((TOTAL_SECONDS - ELAPSED))
+          HOURS=$((REMAINING / 3600))
+          MINUTES=$(((REMAINING % 3600) / 60))
+          
+          echo "🟢 VPS Active | Time remaining: ${HOURS}h ${MINUTES}m"
+          echo "📊 CPU: $(top -bn1 | grep 'Cpu(s)' | awk '{print $2}')% | RAM: $(free -m | awk 'NR==2{printf "%s/%sMB (%.2f%%)", $3,$2,$3*100/$2 }')"
+          
+          # Check if it's time for backup
+          if [ $((ELAPSED - LAST_BACKUP)) -ge $BACKUP_INTERVAL ]; then
+            echo "📦 Creating hourly backup..."
+            
+            BACKUP_NAME="backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+            
+            # Backup home directory and important files
+            tar -czf ".backup/$BACKUP_NAME" \
+              --exclude='.backup' \
+              --exclude='.git' \
+              --exclude='node_modules' \
+              ssh-info.txt ngrok.log 2>/dev/null || true
+            
+            # Commit backup
+            git add .backup/
+            git commit -m "💾 Hourly backup - $(date +%Y-%m-%d_%H:%M:%S)" --allow-empty
+            git push origin main --force-with-lease
+            
+            echo "✅ Backup created: $BACKUP_NAME"
+            
+            # Keep only last 5 backups
+            cd .backup
+            ls -t backup_*.tar.gz | tail -n +6 | xargs -r rm
+            cd ..
+            
+            LAST_BACKUP=$ELAPSED
+          fi
+          
+          sleep $INTERVAL
+          ELAPSED=$((ELAPSED + INTERVAL))
+        done
+        
+        echo "⏰ Session time reached, preparing restart..."
+        
+        # Final backup before restart
+        echo "📦 Creating final backup before restart..."
+        FINAL_BACKUP="backup_final_$(date +%Y%m%d_%H%M%S).tar.gz"
+        tar -czf ".backup/$FINAL_BACKUP" \
+          --exclude='.backup' \
+          --exclude='.git' \
+          ssh-info.txt ngrok.log 2>/dev/null || true
+        
+        git add .backup/
+        git commit -m "💾 Final backup before restart - $(date)" --allow-empty
+        git push origin main --force-with-lease
+        
+    - name: 🔄 Auto Restart Workflow
+      if: always()
+      run: |
+        echo "🔄 Triggering workflow restart..."
+        
+        curl -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          https://api.github.com/repos/Thething245/ubuntu-vps-repo/dispatches \
+          -d '{"event_type":"create-vps","client_payload":{"auto_restart":true}}'
+        
+        echo "✅ Restart triggered"
