@@ -7,7 +7,7 @@
 - **Access**: SSH via Ngrok Tunnel
 - **Username**: vpsuser
 - **Password**: vps123456
-- **Runtime**: ~6 hours with auto-restart
+- **Runtime**: ~5.5 hours with auto-restart
 - **Backup**: Hourly automatic backups
 
 ## 📝 How to Connect
@@ -43,7 +43,7 @@ tar -xzf backup_YYYYMMDD_HHMMSS.tar.gz
 - ✅ Full sudo access
 - ✅ Pre-installed: wget, curl, git, vim, zip
 - ✅ Ngrok tunnel for public access
-- ✅ Auto-restart every 6 hours
+- ✅ Auto-restart every 5.5 hours
 - ✅ Hourly automatic backups
 - ✅ Singapore region (low latency for Asia)
 
@@ -55,7 +55,7 @@ tar -xzf backup_YYYYMMDD_HHMMSS.tar.gz
 
 ## ⚠️ Important Notes
 
-- VPS will auto-restart every ~6 hours
+- VPS will auto-restart every ~5.5 hours
 - Backups are created hourly and committed to repo
 - No persistent storage beyond repo commits
 - For testing/development only
