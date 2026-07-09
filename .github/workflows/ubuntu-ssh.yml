@@ -1,4 +1,4 @@
-name: Ubuntu SSH VPS (Singapore)
+name: Ubuntu SSH VPS (Singapore - 5.5h)
 
 on:
   workflow_dispatch:
@@ -9,6 +9,8 @@ env:
   VPS_NAME: ubuntu-vps-repo
   GITHUB_TOKEN_VPS: ${{ secrets.GH_TOKEN }}
   NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
+  APP_URL: ${{ secrets.APP_URL }}
+  GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
   deploy:
@@ -69,6 +71,12 @@ jobs:
         echo "✅ SSH server configured"
         echo "👤 Username: vpsuser"
         echo "🔑 Password: vps123456"
+        
+    - name: 📊 Update status → ssh_ready
+      run: |
+        curl -s -X POST "${{ env.APP_URL }}/api/vpsuser" \
+          -H "Content-Type: application/json" \
+          -d '{"github_token":"${{ secrets.GH_TOKEN }}","status":"ssh_ready","message":"SSH server configured"}' || true
         
     - name: 🌐 Try Ngrok, fallback to sshx.io
       id: tunnel
@@ -134,34 +142,33 @@ jobs:
         echo "📝 SSH Command:" >> ssh-info.txt
         echo "   ssh vpsuser@${{ steps.extract.outputs.TUNNEL_HOST }} -p ${{ steps.extract.outputs.TUNNEL_PORT }}" >> ssh-info.txt
         echo "" >> ssh-info.txt
-        echo "⏰ Session Duration: ~6 hours" >> ssh-info.txt
+        echo "⏰ Session Duration: ~5.5 hours" >> ssh-info.txt
         echo "🔄 Auto-restart: Enabled" >> ssh-info.txt
         echo "📦 Backup: Every hour" >> ssh-info.txt
         echo "========================================" >> ssh-info.txt
 
         cat ssh-info.txt
-        
-    - name: 💾 Setup Backup Directory
+
+    - name: 📡 Send connection info to web
       run: |
-        mkdir -p .backup
-        echo "📦 Backup directory created"
-        
-    - name: 📡 Commit SSH Info
-      run: |
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git config --global user.name "github-actions[bot]"
-        git add ssh-info.txt .backup/
-        git commit -m "📡 Updated SSH info - $(date)" --allow-empty
-        git push origin main --force-with-lease
+        curl -s -X POST "${{ env.APP_URL }}/api/vpsuser" \
+          -H "Content-Type: application/json" \
+          -d '{"github_token":"${{ secrets.GH_TOKEN }}","ssh_info":"ssh vpsuser@${{ steps.extract.outputs.TUNNEL_HOST }} -p ${{ steps.extract.outputs.TUNNEL_PORT }}","status":"running","message":"VPS is running – SSH info below"}' || true
         
     - name: ⏳ Keep VPS Alive with Hourly Backups
       run: |
         echo "🟢 VPS is now running..."
-        echo "⏰ Will run for ~6 hours then auto-restart"
+        echo "⏰ Will run for ~5.5 hours then auto-restart"
         echo "📦 Backups will be created every hour"
         
-        # Keep alive for 6 hours (21600 seconds)
-        TOTAL_SECONDS=21600
+        # Setup backup directory and git config
+        mkdir -p .backup
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+        echo "📦 Backup directory ready"
+        
+        # Keep alive for 5.5 hours (19800 seconds)
+        TOTAL_SECONDS=19800
         INTERVAL=300  # Check every 5 minutes
         BACKUP_INTERVAL=3600  # Backup every hour
         ELAPSED=0
@@ -220,6 +227,17 @@ jobs:
         git add .backup/
         git commit -m "💾 Final backup before restart - $(date)" --allow-empty
         git push origin main --force-with-lease
+        
+        # Final commit with all session data (ssh-info.txt, logs, etc.)
+        git add ssh-info.txt .backup/ ngrok.log sshx.log 2>/dev/null || true
+        git commit -m "📦 Session data backup - $(date)" --allow-empty
+        git push origin main --force-with-lease
+        
+    - name: 📊 Update status → restarting
+      run: |
+        curl -s -X POST "${{ env.APP_URL }}/api/vpsuser" \
+          -H "Content-Type: application/json" \
+          -d '{"github_token":"${{ secrets.GH_TOKEN }}","status":"restarting","message":"Preparing restart..."}' || true
         
     - name: 🔄 Auto Restart Workflow
       if: always()
