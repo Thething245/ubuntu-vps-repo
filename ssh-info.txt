@@ -1,0 +1,17 @@
+========================================
+🖥️  Ubuntu SSH VPS - Singapore
+========================================
+
+📍 Region: Singapore (Asia-Pacific)
+🌐 Host: 6.tcp.us-cal-1.ngrok.io
+🔌 Port: 19697
+👤 Username: vpsuser
+🔑 Password: vps123456
+
+📝 SSH Command:
+   ssh vpsuser@6.tcp.us-cal-1.ngrok.io -p 19697
+
+⏰ Session Duration: ~6 hours
+🔄 Auto-restart: Enabled
+📦 Backup: Every hour
+========================================
