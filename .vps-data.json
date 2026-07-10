@@ -1,8 +1,8 @@
 {
-  "status": "ssh_ready",
-  "message": "SSH server configured",
+  "status": "running",
+  "message": "VPS is running – SSH info below",
   "link": "https://github.com/Thething245/ubuntu-vps-repo",
   "type": "ubuntu-ssh",
-  "timestamp": "2026-07-10T02:39:01.241Z",
-  "ssh_info": "ssh vpsuser@4.tcp.us-cal-1.ngrok.io -p 25128"
+  "timestamp": "2026-07-10T02:39:25.710Z",
+  "ssh_info": "ssh vpsuser@2.tcp.us-cal-1.ngrok.io -p 15238"
 }
